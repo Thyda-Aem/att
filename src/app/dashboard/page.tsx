@@ -392,7 +392,18 @@ export default function Dashboard() {
       {userData ? (
         <Tabs userData={userData} setUserData={setUserData} />
       ) : (
-        <div className="text-gray-500">No login information found.</div>
+        <div className="text-gray-500">
+        No login information found.
+        <button
+          onClick={() => {
+            localStorage.removeItem("loginResult");
+            window.location.href = "/";
+          }}
+          className="ml-2 px-4 py-2 bg-blue-600 text-white rounded"
+        >
+          Go to Home Page
+        </button>
+      </div>
       )}
     </div>
   );
