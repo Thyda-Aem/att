@@ -2,8 +2,14 @@
 
 import { pages } from "next/dist/build/templates/app-page";
 import { Result } from "postcss";
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useState, useRef } from "react";
+import Swal from "sweetalert2";
+
+interface TabsProps {
+  userData: UserData | null;
+  setUserData: React.Dispatch<React.SetStateAction<UserData | null>>;
+}
+
 
 interface User {
   id: number;
@@ -11,6 +17,7 @@ interface User {
   email: string;
   Image?: string;
   session_token: string;
+  status : number;
 }
 
 interface UserData {
@@ -35,7 +42,11 @@ const Tabs = ({ userData, setUserData }: TabsProps) => {
   const [currentTime, setCurrentTime] = useState<string>("");
   const [showButton, setShowButton] = useState(false);
   const [btnStatus, setBtnStatus] = useState(false);  
-  const [myAttendance, setMyAttendance] = useState<Attendance[] | null>(null);
+  const [myAttendance, setMyAttendance] = useState<Attendance[]>([]);
+  const [page, setPage] = useState(1); 
+  const [loading, setLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true); 
+  const tableRef = useRef<HTMLDivElement>(null);
 
 
   const companyCoords ={lat: 11.4994736, lng: 104.7699068};//11.4995665,104.7699807 11.4994736,104.7699068 11.4995268,104.7699989 {lat: 11.4995052, lng: 104.7699526};// { lat: 11.4995041, lng: 104.7699444 };
@@ -59,7 +70,7 @@ const Tabs = ({ userData, setUserData }: TabsProps) => {
       };
 
       const checkProximity = (userCoords: { lat: number; lng: number }) => {
-        const isNearCompany = calculateDistance(companyCoords, userCoords) <= 0.1;
+        const isNearCompany = calculateDistance(companyCoords, userCoords) <= 0.01;
         console.log('user coords :',userCoords , "destanst : ",calculateDistance(companyCoords, userCoords));
         setShowButton(isNearCompany);
       };
@@ -142,7 +153,17 @@ const Tabs = ({ userData, setUserData }: TabsProps) => {
       }
 
       const data = await response.json();
-      window.location.reload();
+      // Show a styled success alert box before reloading
+    Swal.fire({
+      title: "✅ Attendance Successful!",
+      html: `<b>🕒 Time:</b> ${now}<br/><b>📅 Date:</b> ${today}`,
+      icon: "success",
+      confirmButtonText: "OK",
+      allowOutsideClick: false,
+    }).then(() => {
+      window.location.reload(); // Reload after user clicks OK
+    });
+      
     
 
       console.log("Attendance check successful:", data);
@@ -151,44 +172,63 @@ const Tabs = ({ userData, setUserData }: TabsProps) => {
     }
   };
 
+  const handleScroll = () => {
+    if (window.innerHeight + document.documentElement.scrollTop >= document.documentElement.offsetHeight - 10 && hasMore && !loading) {
+      setPage((prevPage) => prevPage + 1);
+    }
+  };
+  const fetchAttendanceData = async (pageNumber: number) => {
+    try {
+      const token = userData?.user?.session_token;
+      const response = await fetch("https://prpropertystore.com/api/myattendance", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id: userData?.user?.id,
+          page: pageNumber,
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setMyAttendance((prev) => {
+        const uniqueData = [...new Map([...prev, ...data.data.data].map(item => [item.id, item])).values()];
+        return uniqueData;
+      }); // Append new data
+      setHasMore(data.data.data.length > 0); // If no more data, stop loading
+      setLoading(false);
+      // You can store the response in your state if necessary
+    } catch (error) {
+      console.error("Error fetching attendance data:", error);
+    }
+  };
   useEffect(() => {
     if (activeTab === "tab2") {
-      // Call the attendance API when tab2 is active
-      const fetchAttendanceData = async () => {
-        try {
-          const token = userData?.user?.session_token;
-          const response = await fetch("https://prpropertystore.com/api/myattendance", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              id: userData?.user?.id,
-            })
-          });
+      const delayFetch = setTimeout(() => {
+        fetchAttendanceData(page);
+      }, 1000); // Delay to avoid rapid requests
   
-          if (!response.ok) {
-            throw new Error(`Error: ${response.status}`);
-          }
-  
-          const data = await response.json();
-          setMyAttendance(data.data.data);
-          console.log("Attendance data:", data);
-          // You can store the response in your state if necessary
-        } catch (error) {
-          console.error("Error fetching attendance data:", error);
-        }
-      };
-  
-      fetchAttendanceData();
+      return () => clearTimeout(delayFetch);
     }
-  }, [activeTab]);
+  }, [activeTab, page]);
+  
+  
+  
+  useEffect(() => {
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
 
   return (
-    <div className="p-4">
-      <div className="flex items-center mb-4 space-x-4">
+    <div className="p-1">
+      <div className="flex items-center mb-4 space-x-2">
         <img
           src="/test.png"//{userData?.user?.Image}
           alt="User Avatar"
@@ -270,36 +310,38 @@ const Tabs = ({ userData, setUserData }: TabsProps) => {
           </div>
         )}
 
-        {activeTab === "tab2" && (
-        <div className="space-y-4">
-          <table className="w-full text-left border border-gray-200">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="px-1 py-1 font-semibold">Date</th>
-                <th className="px-1 py-1 font-semibold">Check In</th>
-                <th className="px-1 py-1 font-semibold">Check Out</th>
-              </tr>
-            </thead>
-            <tbody>
-              {myAttendance?.length ? (
-                myAttendance.map((attendance) => (
-                  <tr key={attendance.id}>
-                    <td className="border px-1 py-1">{attendance.dateCheck}</td>
-                    <td className="border px-1 py-1">{attendance.timeCheckIN || "Not Checked In"}</td>
-                    <td className="border px-1 py-1">{attendance.timeCheckOut || "Not Checked"}</td>
+      {activeTab === "tab2" && (
+            <div ref={tableRef} className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg" onScroll={handleScroll}>
+              <table className="w-full text-left">
+                <thead className="sticky top-0 bg-gray-100">
+                  <tr>
+                    <th className="px-1 py-1 font-semibold">Date</th>
+                    <th className="px-1 py-1 font-semibold">Check In</th>
+                    <th className="px-1 py-1 font-semibold">Check Out</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="border px-4 py-2" colSpan={3}>
-                    No data available
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          </div>
-        )}        
+                </thead>
+                <tbody>
+                  {myAttendance.length ? (
+                    myAttendance.map((attendance, index) => (
+                      <tr key={`${attendance.id}-${index}`} className="border-b">
+                        <td className="px-1 py-1">{attendance.dateCheck}</td>
+                        <td className="px-1 py-1">{attendance.timeCheckIN || "Not Checked In"}</td>
+                        <td className="px-1 py-1">{attendance.timeCheckOut || "Not Checked Out"}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="px-3 py-2 text-center" colSpan={3}>No data available</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+              {loading && <div className="text-center py-2 text-gray-500">Loading...</div>}
+              {!hasMore && myAttendance.length > 0 && <div className="text-center py-2 text-gray-500">No more data</div>}
+            </div>
+          )}
+
+
       </div>
     </div>
   );
@@ -307,6 +349,9 @@ const Tabs = ({ userData, setUserData }: TabsProps) => {
 
 export default function Dashboard() {
   const [userData, setUserData] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isDisabled, setIsDisabled] = useState(false);
+
   useEffect(() => {
     const tabKey = "activeDashboardTab";
     const currentTabId = Date.now().toString(); // Unique ID for each tab
@@ -346,11 +391,15 @@ export default function Dashboard() {
     };
   }, []);
 
+  
+
   useEffect(() => {
     const result = localStorage.getItem("loginResult");
 
     if (result) {
       fetchData(result);
+    }else {
+      setLoading(false); // Stop loading if no login data is found
     }
   }, []);
 
@@ -381,29 +430,71 @@ export default function Dashboard() {
 
       const fetchedData = await response.json();
       setUserData(fetchedData);
-      console.log(fetchedData);
-    } catch (error) {
+      if (fetchedData?.user?.status === 2) {
+        // Swal.fire({
+        //   title: "Your account has been disabled",
+        //   icon: "warning",
+        //   confirmButtonText: "OK",  // Ensure there is a button to close the alert
+        //   allowOutsideClick: false, // Prevent closing by clicking outside
+        // }).then(() => {
+        //   // ✅ Remove login data and redirect after clicking OK
+        //   localStorage.removeItem("loginResult");
+        //   window.location.href = "/";
+        // });
+      
+        // return; // 🚨 Stop execution to prevent immediate redirect
+          alert("Your account is disabled!"); // Pop-up message
+          setIsDisabled(true);
+      }
+      
+    }  catch (error) {
       console.error("Error fetching dashboard data:", error);
+      setUserData(null); // Ensure userData is set to null when user is not found
+    } finally {
+      setLoading(false); // Ensure loading state is updated
     }
   };
 
+
   return (
     <div className="p-8">
-      {userData ? (
+      {isDisabled && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center">
+          <div className="bg-white p-6 rounded-lg shadow-lg text-center">
+            <h2 className="text-xl font-semibold text-red-600">Your account has been disabled</h2>
+            <p className="text-gray-600 mt-2">Please contact support for assistance.</p>
+            <button
+              onClick={() => {
+                localStorage.removeItem("loginResult");
+                window.location.href = "/";
+              }}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded"
+            >
+              Go to Home Page
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {loading ? ( 
+        <div className="text-gray-500 flex flex-col items-center justify-center h-screen">
+        <p>Loading...</p> 
+        </div>
+      ) : userData ? (
         <Tabs userData={userData} setUserData={setUserData} />
       ) : (
-        <div className="text-gray-500">
-        No login information found.
-        <button
-          onClick={() => {
-            localStorage.removeItem("loginResult");
-            window.location.href = "/";
-          }}
-          className="ml-2 px-4 py-2 bg-blue-600 text-white rounded"
-        >
-          Go to Home Page
-        </button>
-      </div>
+        <div className="text-gray-500 flex flex-col items-center justify-center h-screen">
+          <p>User not found.</p>
+          <button
+            onClick={() => {
+              localStorage.removeItem("loginResult");
+              window.location.href = "/";
+            }}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded"
+          >
+            Go to Home Page
+          </button>
+        </div>
       )}
     </div>
   );
